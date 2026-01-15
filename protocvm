@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+
+# protoc version manager (protocvm)
+
+set -e
+
+VERSION="0.1.0"
+
+PROTOCOL_BUFFERS_VERSIONS_URL="https://github.com/protocolbuffers/protobuf/releases"
+DEFAULT_PROTOCVM_DIR="$HOME/.protocvm"
+PROTOCVM_DIR="${PROTOCVM_DIR:-$DEFAULT_PROTOCVM_DIR}"
+PROTOCVM_ROOT_URL="${PROTOCVM_ROOT_URL:-https://github.com/protocolbuffers/protobuf/releases/download}"
+
+export PATH="$PATH:$PROTOCVM_DIR/bin"
+
+usage() {
+    cat <<'EOF'
+Usage: protocvm [command]
+
+Description:
+  PROTOCVM is the Protoc Version Manager
+
+Commands:
+  version    - print the protocvm version number
+  get        - gets the latest code (for debugging)
+  use        - select a protoc version to use (--default to set permanently)
+  help       - display this usage text
+  implode    - completely remove protocvm
+  install    - install protoc versions
+  uninstall  - uninstall protoc versions
+  list       - list installed protoc versions
+  listall    - list available versions
+EOF
+}
+
+version() {
+    echo "protocvm version $VERSION"
+}
+
+help() {
+    usage
+}
+
+install() {
+    local version=$1
+    
+    if [[ -z "$version" ]]; then
+        echo "Usage: protocvm install <version>"
+        return 1
+    fi
+
+    echo "Installing protoc version $version..."
+
+    # Create temporary directory
+    local temp_dir=$(mktemp -d)
+    
+    # Determine OS and architecture
+    local os_arch
+    case "$(uname -s)" in
+        Darwin*) os_arch="osx-x86_64";;
+        Linux*) os_arch="linux-x86_64";;
+        *) echo "Unsupported OS: $(uname -s)"; return 1;;
+    esac
+
+    # Download protoc archive
+    local download_url="$PROTOCVM_ROOT_URL/v$version/protoc-$version-$os_arch.zip"
+    local archive_path="$temp_dir/protoc-$version-$os_arch.zip"
+    
+    if command -v curl >/dev/null 2>&1; then
+        curl -o "$archive_path" -L "$download_url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -O "$archive_path" "$download_url"
+    else
+        echo "Error: Neither curl nor wget found. Please install one of them."
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    if [[ ! -f "$archive_path" ]]; then
+        echo "Error: Failed to download protoc version $version"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    # Extract protoc binary
+    unzip -q "$archive_path" -d "$temp_dir"
+    
+    # Create version directory
+    local version_dir="$PROTOCVM_DIR/$version"
+    mkdir -p "$version_dir"
+    
+    # Copy protoc binary to version directory
+    cp "$temp_dir/bin/protoc" "$version_dir/"
+    
+    # Copy includes if they exist
+    if [[ -d "$temp_dir/include" ]]; then
+        cp -r "$temp_dir/include" "$version_dir/"
+    fi
+    
+    # Clean up
+    rm -rf "$temp_dir"
+    
+    echo "Successfully installed protoc version $version"
+}
+
+uninstall() {
+    local version=$1
+    
+    if [[ -z "$version" ]]; then
+        echo "Usage: protocvm uninstall <version>"
+        return 1
+    fi
+
+    local version_dir="$PROTOCVM_DIR/$version"
+    
+    if [[ ! -d "$version_dir" ]]; then
+        echo "protoc version $version is not installed"
+        return 1
+    fi
+
+    echo "Uninstalling protoc version $version..."
+    rm -rf "$version_dir"
+    echo "Successfully uninstalled protoc version $version"
+}
+
+use() {
+    local version=$1
+    local set_default=$2
+    
+    if [[ -z "$version" ]]; then
+        echo "Usage: protocvm use <version> [--default]"
+        return 1
+    fi
+
+    local version_dir="$PROTOCVM_DIR/$version"
+    
+    if [[ ! -d "$version_dir" ]]; then
+        echo "protoc version $version is not installed"
+        return 1
+    fi
+
+    # Remove old symlink if it exists
+    if [[ -L "$PROTOCVM_DIR/current" ]]; then
+        rm "$PROTOCVM_DIR/current"
+    fi
+
+    # Create new symlink
+    ln -s "$version_dir" "$PROTOCVM_DIR/current"
+    
+    # If --default flag is set, save version to .protocvmrc
+    if [[ "$set_default" == "--default" ]]; then
+        echo "$version" > "$PROTOCVM_DIR/.protocvmrc"
+        echo "Setting protoc version $version as default"
+    fi
+
+    echo "Now using protoc version $version"
+}
+
+list() {
+    if [[ ! -d "$PROTOCVM_DIR" ]]; then
+        echo "No protoc versions installed"
+        return 0
+    fi
+
+    echo "Installed protoc versions:"
+    for dir in "$PROTOCVM_DIR"/[0-9]*; do
+        if [[ -d "$dir" ]]; then
+            version=$(basename "$dir")
+            if [[ -L "$PROTOCVM_DIR/current" && "$(readlink "$PROTOCVM_DIR/current")" == "$dir" ]]; then
+                echo "  $version (current)"
+            else
+                echo "  $version"
+            fi
+        fi
+    done
+}
+
+listall() {
+    echo "Fetching available versions from GitHub..."
+    # Get the latest releases from GitHub API
+    if command -v curl >/dev/null 2>&1; then
+        curl -s "https://api.github.com/repos/protocolbuffers/protobuf/releases?per_page=20" | \
+            grep '"tag_name"' | \
+            sed -E 's/.*"v([^"]+)".*/\1/' | \
+            head -20
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- "https://api.github.com/repos/protocolbuffers/protobuf/releases?per_page=20" | \
+            grep '"tag_name"' | \
+            sed -E 's/.*"v([^"]+)".*/\1/' | \
+            head -20
+    else
+        echo "Error: Neither curl nor wget found. Cannot fetch available versions."
+        return 1
+    fi
+}
+
+get() {
+    echo "Cloning the latest protocvm code from GitHub..."
+    if [[ -d "$PROTOCVM_DIR" ]]; then
+        echo "Updating existing protocvm installation..."
+        cd "$PROTOCVM_DIR"
+        git pull origin main
+    else
+        git clone https://github.com/soyacen/protocvm.git "$PROTOCVM_DIR"
+    fi
+}
+
+implode() {
+    echo "This will delete the entire protocvm installation at $PROTOCVM_DIR"
+    echo "Are you sure? (y/N)"
+    read -r confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        rm -rf "$PROTOCVM_DIR"
+        echo "protocvm has been removed"
+    else
+        echo "Implode cancelled"
+    fi
+}
+
+# Ensure protocvm directory exists
+setup_protocvm() {
+    if [[ ! -d "$PROTOCVM_DIR" ]]; then
+        mkdir -p "$PROTOCVM_DIR"
+        mkdir -p "$PROTOCVM_DIR/bin"
+    fi
+}
+
+main() {
+    local cmd=$1
+    shift
+
+    setup_protocvm
+
+    case "$cmd" in
+        version)
+            version
+            ;;
+        help)
+            help
+            ;;
+        install)
+            install "$@"
+            ;;
+        uninstall)
+            uninstall "$@"
+            ;;
+        use)
+            use "$@"
+            ;;
+        list)
+            list
+            ;;
+        listall)
+            listall
+            ;;
+        get)
+            get
+            ;;
+        implode)
+            implode
+            ;;
+        "")
+            usage
+            ;;
+        *)
+            echo "Unknown command: $cmd"
+            usage
+            return 1
+            ;;
+    esac
+}
+
+main "$@"
