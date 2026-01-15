@@ -28,7 +28,7 @@ Description:
 Commands:
   version    - print the protocvm version number
   get        - gets the latest code (for debugging)
-  use        - select a protoc version to use (--default to set permanently)
+  use        - select a protoc version to use
   help       - display this usage text
   implode    - completely remove protocvm
   install    - install protoc versions
@@ -136,7 +136,6 @@ uninstall() {
 
 use() {
     local version=$1
-    local set_default=$2
     
     if [[ -z "$version" ]]; then
         echo "Usage: protocvm use <version> [--default]"
@@ -163,12 +162,6 @@ use() {
         rm "$BIN_DIR/protoc"
     fi
     ln -s "$CURRENT_DIR/protoc" "$BIN_DIR/protoc"
-    
-    # If --default flag is set, save version to .protocvmrc
-    if [[ "$set_default" == "--default" ]]; then
-        echo "$version" > "$PROTOCVM_DIR/.protocvmrc"
-        echo "Setting protoc version $version as default"
-    fi
 
     echo "Now using protoc version $version"
 }
