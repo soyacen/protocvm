@@ -54,19 +54,14 @@ git clone "$GITHUB_REPO" "$PROTOCVM_DIR"
 # Make protocvm executable
 chmod +x "$PROTOCVM_DIR/protocvm"
 
-# Check if protocvm is in PATH
-if ! command -v "$PROTOCVM_DIR/protocvm" &>/dev/null; then
-    log_warn "protocvm is not in your PATH."
-    echo
-    echo "To get started, add the following line to your ~/.bashrc, ~/.zshrc, or ~/.profile:"
-    echo ""
-    echo "    export PATH=\"\$PATH:$PROTOCVM_DIR\""
-    echo ""
-    echo "Or source the profile file in your current session:"
-    echo ""
-    echo "    source ~/.bashrc  # or ~/.zshrc or ~/.profile"
-    echo ""
-fi
-
 log_info "protocvm successfully installed!"
-log_info "Run '$PROTOCVM_DIR/protocvm help' to get started."
+echo ""
+log_warn "protocvm is not in your PATH."
+echo ""
+echo "To get started, add the following line to your ~/.bashrc, ~/.zshrc, or ~/.profile:"
+echo ""
+echo "    export PATH=\"\$PATH:$PROTOCVM_DIR\""
+echo ""
+echo "Or source the profile file in your current session:"
+echo ""
+echo "    source ~/.bashrc  # or ~/.zshrc or ~/.profile"

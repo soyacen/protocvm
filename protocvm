@@ -11,7 +11,12 @@ DEFAULT_PROTOCVM_DIR="$HOME/.protocvm"
 PROTOCVM_DIR="${PROTOCVM_DIR:-$DEFAULT_PROTOCVM_DIR}"
 PROTOCVM_ROOT_URL="${PROTOCVM_ROOT_URL:-https://github.com/protocolbuffers/protobuf/releases/download}"
 
-export PATH="$PATH:$PROTOCVM_DIR/bin"
+# Create subdirectories
+VERSIONS_DIR="$PROTOCVM_DIR/versions"
+CURRENT_DIR="$PROTOCVM_DIR/current"
+BIN_DIR="$PROTOCVM_DIR/bin"
+
+export PATH="$PATH:$BIN_DIR"
 
 usage() {
     cat <<'EOF'
@@ -85,8 +90,8 @@ install() {
     # Extract protoc binary
     unzip -q "$archive_path" -d "$temp_dir"
     
-    # Create version directory
-    local version_dir="$PROTOCVM_DIR/$version"
+    # Create version directory inside versions subfolder
+    local version_dir="$VERSIONS_DIR/$version"
     mkdir -p "$version_dir"
     
     # Copy protoc binary to version directory
@@ -111,7 +116,7 @@ uninstall() {
         return 1
     fi
 
-    local version_dir="$PROTOCVM_DIR/$version"
+    local version_dir="$VERSIONS_DIR/$version"
     
     if [[ ! -d "$version_dir" ]]; then
         echo "protoc version $version is not installed"
@@ -121,6 +126,12 @@ uninstall() {
     echo "Uninstalling protoc version $version..."
     rm -rf "$version_dir"
     echo "Successfully uninstalled protoc version $version"
+    
+    # If this was the current version, update current symlink
+    if [[ -L "$CURRENT_DIR" && "$(readlink "$CURRENT_DIR")" == "$version_dir" ]]; then
+        echo "Removed current version, please select a new version to use"
+        rm -f "$CURRENT_DIR"
+    fi
 }
 
 use() {
@@ -132,7 +143,7 @@ use() {
         return 1
     fi
 
-    local version_dir="$PROTOCVM_DIR/$version"
+    local version_dir="$VERSIONS_DIR/$version"
     
     if [[ ! -d "$version_dir" ]]; then
         echo "protoc version $version is not installed"
@@ -140,12 +151,18 @@ use() {
     fi
 
     # Remove old symlink if it exists
-    if [[ -L "$PROTOCVM_DIR/current" ]]; then
-        rm "$PROTOCVM_DIR/current"
+    if [[ -L "$CURRENT_DIR" ]]; then
+        rm "$CURRENT_DIR"
     fi
 
     # Create new symlink
-    ln -s "$version_dir" "$PROTOCVM_DIR/current"
+    ln -s "$version_dir" "$CURRENT_DIR"
+    
+    # Update the symlink in bin directory to point to the current protoc binary
+    if [[ -f "$BIN_DIR/protoc" ]]; then
+        rm "$BIN_DIR/protoc"
+    fi
+    ln -s "$CURRENT_DIR/protoc" "$BIN_DIR/protoc"
     
     # If --default flag is set, save version to .protocvmrc
     if [[ "$set_default" == "--default" ]]; then
@@ -157,16 +174,16 @@ use() {
 }
 
 list() {
-    if [[ ! -d "$PROTOCVM_DIR" ]]; then
+    if [[ ! -d "$VERSIONS_DIR" ]]; then
         echo "No protoc versions installed"
         return 0
     fi
 
     echo "Installed protoc versions:"
-    for dir in "$PROTOCVM_DIR"/[0-9]*; do
+    for dir in "$VERSIONS_DIR"/[0-9]*; do
         if [[ -d "$dir" ]]; then
             version=$(basename "$dir")
-            if [[ -L "$PROTOCVM_DIR/current" && "$(readlink "$PROTOCVM_DIR/current")" == "$dir" ]]; then
+            if [[ -L "$CURRENT_DIR" && "$(readlink "$CURRENT_DIR")" == "$dir" ]]; then
                 echo "  $version (current)"
             else
                 echo "  $version"
@@ -221,7 +238,20 @@ implode() {
 setup_protocvm() {
     if [[ ! -d "$PROTOCVM_DIR" ]]; then
         mkdir -p "$PROTOCVM_DIR"
-        mkdir -p "$PROTOCVM_DIR/bin"
+        mkdir -p "$VERSIONS_DIR"
+        mkdir -p "$BIN_DIR"
+    else
+        # Make sure directories exist
+        mkdir -p "$VERSIONS_DIR"
+        mkdir -p "$BIN_DIR"
+        
+        # If .protocvmrc exists, switch to the default version
+        if [[ -f "$PROTOCVM_DIR/.protocvmrc" ]]; then
+            local default_version=$(cat "$PROTOCVM_DIR/.protocvmrc")
+            if [[ -d "$VERSIONS_DIR/$default_version" ]]; then
+                use "$default_version" 2>/dev/null || true
+            fi
+        fi
     fi
 }
 
